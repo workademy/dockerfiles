@@ -11,19 +11,12 @@
 # Set gid=0 and make group perms==owner perms
 ################################################################################
 
+FROM arm64v8/openjdk:11.0.9-jdk as java
+
 FROM centos:7 AS builder
 
 ENV PATH /usr/share/elasticsearch/bin:$PATH
-ENV JAVA_HOME /opt/jdk-14.0.1+7
-
-RUN for iter in {1..10}; do curl -L -s -S https://github.com/AdoptOpenJDK/openjdk14-binaries/releases/download/jdk-14.0.1%2B7/OpenJDK14U-jdk_x64_linux_hotspot_14.0.1_7.tar.gz | tar -C /opt -zx && \
-    exit_code=0 && break || exit_code=\$? && echo "download error: retry $iter in 10s" && sleep 10; done; \
-    (exit $exit_code)
- 
-# Replace OpenJDK's built-in CA certificate keystore with the one from the OS
-# vendor. The latter is superior in several ways.
-# REF: https://github.com/elastic/elasticsearch-docker/issues/171
-RUN ln -sf /etc/pki/ca-trust/extracted/java/cacerts /opt/jdk-14.0.1+7/lib/security/cacerts
+ENV JAVA_HOME /opt/java
 
 RUN yum install -y unzip which
 
@@ -39,7 +32,7 @@ RUN grep ES_DISTRIBUTION_TYPE=tar /usr/share/elasticsearch/bin/elasticsearch-env
     && sed -ie 's/ES_DISTRIBUTION_TYPE=tar/ES_DISTRIBUTION_TYPE=docker/' /usr/share/elasticsearch/bin/elasticsearch-env
 RUN mkdir -p config data logs
 RUN chmod 0775 config data logs
-COPY config/elasticsearch.yml config/log4j2.properties config/
+COPY config/elasticsearch.yml config/log4j2.properties config/jvm.options config/
 
 ################################################################################
 # Build stage 1 (the actual elasticsearch image):
@@ -50,9 +43,10 @@ COPY config/elasticsearch.yml config/log4j2.properties config/
 FROM centos:7
 
 ENV ELASTIC_CONTAINER true
-ENV JAVA_HOME /opt/jdk-14.0.1+7
+ENV JAVA_HOME /opt/java
 
-COPY --from=builder /opt/jdk-14.0.1+7 /opt/jdk-14.0.1+7
+COPY --from=java /usr/local/openjdk-11 /opt/java
+COPY --from=builder /etc/pki/ca-trust/extracted/java/cacerts /opt/java/lib/security/cacerts
 
 RUN for iter in {1..10}; do yum update  --setopt=tsflags=nodocs -y && \
     yum install -y  --setopt=tsflags=nodocs nc unzip wget which && \
